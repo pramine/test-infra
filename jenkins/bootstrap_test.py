@@ -1137,7 +1137,7 @@ class IntegrationTest(unittest.TestCase):
 
     def testCommitInMeta(self):
         sha = subprocess.check_output(['git', 'rev-parse', 'HEAD']).strip()
-        
+
         # Commit SHA should in meta
         call = lambda *a, **kw: bootstrap._call(5, *a, **kw)
         meta = bootstrap.metadata(REPO, 'missing-artifacts-dir', call)
@@ -1194,6 +1194,7 @@ class JobTest(unittest.TestCase):
         'job-configs/kubernetes-jenkins/bootstrap-maintenance-ci.yaml' : 'suffix',
         'job-configs/kubernetes-jenkins-pull/bootstrap-maintenance-pull.yaml' : 'suffix',
         'job-configs/kubernetes-jenkins-pull/bootstrap-pull.yaml' : 'suffix',
+        'job-configs/kubernetes-jenkins-pull/bootstrap-security-pull.yaml' : 'suffix',
         'job-configs/kubernetes-jenkins/bootstrap-ci.yaml' : 'suffix',
         'job-configs/kubernetes-jenkins/bootstrap-ci-commit.yaml' : 'commit-suffix',
         'job-configs/kubernetes-jenkins/bootstrap-ci-repo.yaml' : 'repo-suffix',
@@ -1290,6 +1291,26 @@ class JobTest(unittest.TestCase):
             'job-configs/kubernetes-jenkins-pull/bootstrap-pull.yaml',
             Check, use_json=is_modern)
 
+    def testBootstrapSecurityPullYaml(self):
+        bads = ['kubernetes-e2e', 'kops-e2e', 'federation-e2e', 'kubemark-e2e']
+        is_modern = lambda n: all(b not in n for b in bads)
+        def Check(job, name):
+            job_name = 'pull-%s' % name
+            self.assertIn('max-total', job)
+            self.assertIn('repo-name', job)
+            self.assertIn('.', job['repo-name'])  # Has domain
+            self.assertIn('timeout', job)
+            self.assertIn('json', job)
+            modern = is_modern(name)
+            self.assertEquals(modern, job['json'])
+            if is_modern(name):
+                self.assertGreater(job['timeout'], 0)
+            return job_name
+
+        self.CheckBootstrapYaml(
+            'job-configs/kubernetes-jenkins-pull/bootstrap-security-pull.yaml',
+            Check, use_json=is_modern)
+
     def testBootstrapCIYaml(self):
         # TODO(krzyzacy): temp until more jobs to be converted
 
@@ -1300,7 +1321,7 @@ class JobTest(unittest.TestCase):
         blacklist = [
             'kubernetes-e2e-(kops|aws)',
         ]
-            
+
         is_modern = lambda name: any(re.match(w, name) for w in whitelist) or not any(re.match(b, name) for b in blacklist)
         def Check(job, name):
             job_name = 'ci-%s' % name
@@ -1401,7 +1422,9 @@ class JobTest(unittest.TestCase):
             self.fail(tmpl)
         self.assertIn('--service-account=', cmd)
         self.assertIn('--upload=', cmd)
-        if '--pull=' in cmd:
+        if 'kubernetes-security' in cmd:
+            self.assertIn('--upload=\'gs://kubernetes-security-jenkins/pr-logs\'', cmd)
+        elif '--pull=' in cmd:
             self.assertIn('--upload=\'gs://kubernetes-jenkins/pr-logs\'', cmd)
         else:
             self.assertIn('--upload=\'gs://kubernetes-jenkins/logs\'', cmd)
@@ -1649,11 +1672,11 @@ class JobTest(unittest.TestCase):
                 if '$' in line:
                     self.fail('[%r]: Env %r: Please resolve variables in env file' % (job, line))
 
-                black = ['E2E_DOWN=', 'E2E_NAME=', 'E2E_TEST=', 'E2E_UP='] # to classify from E2E_UPGRADE 
+                black = ['E2E_DOWN=', 'E2E_NAME=', 'E2E_TEST=', 'E2E_UP='] # to classify from E2E_UPGRADE
                 for b in black:
                     if b in line:
                         self.fail('[%r]: Env %r: Convert %r to use e2e scenario flags' % (job, line, b))
-                
+
 
     def testNoBadVarsInJobs(self):
         """Searches for jobs that contain ${{VAR}}"""
